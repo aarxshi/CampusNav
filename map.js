@@ -112,6 +112,38 @@ map.on('load', () => {
     paint: { 'line-color': '#c8bfb0', 'line-width': 1.5, 'line-dasharray': [3, 2] },
   });
 
+  /* Route line (drawn on top of campus paths) ──────── */
+  map.addSource('route-line', {
+    type: 'geojson',
+    data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } }
+  });
+
+  // Glow underneath
+  map.addLayer({
+    id: 'route-line-glow', type: 'line', source: 'route-line',
+    paint: {
+      'line-color': '#0ea5e9',
+      'line-width': 10,
+      'line-opacity': 0.15,
+      'line-blur': 4,
+    }
+  });
+
+  // Main dashed route
+  map.addLayer({
+    id: 'route-line-main', type: 'line', source: 'route-line',
+    paint: {
+      'line-color': '#0ea5e9',
+      'line-width': 3.5,
+      'line-dasharray': [2, 2],
+    }
+  });
+
+  // Initialise router after map loads
+  Router.init().then(() => {
+    console.log('Router ready');
+  });
+
   /* Hover pulse ────────────────────────────────────── */
   let hoveredId = null, pulseDir = 1, pulseVal = 0.38;
 
@@ -208,4 +240,59 @@ function dijkstra(from, to) {
   const path = []; let c = to;
   while (c) { path.unshift(c); c = prev[c]; }
   return { path, dist: dist[to] };
+}
+
+/* ── ROUTE LINE HELPERS ─────────────────────────────── */
+
+/**
+ * Draw a route on the map given an array of [lng, lat] coords.
+ */
+function drawRoute(coords) {
+  if (!map.getSource('route-line')) return;
+  map.getSource('route-line').setData({
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: coords }
+  });
+}
+
+/**
+ * Clear the route line from the map.
+ */
+function clearRoute() {
+  if (!map.getSource('route-line')) return;
+  map.getSource('route-line').setData({
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: [] }
+  });
+}
+
+/**
+ * Get the centroid of a building polygon by querying rendered features.
+ * Falls back to querying source features if not rendered.
+ * Returns [lng, lat] or null.
+ */
+function getBuildingCenter(bid) {
+  const numId = isNaN(bid) ? bid : Number(bid);
+
+  // Try rendered features first (faster)
+  let features = map.queryRenderedFeatures({ layers: ['building-fill'] })
+    .filter(f => (f.id === numId) || (f.properties?.id == bid));
+
+  // Fall back to source features
+  if (!features.length) {
+    features = map.querySourceFeatures('buildings')
+      .filter(f => (f.id === numId) || (f.properties?.id == bid));
+  }
+
+  if (!features.length) return null;
+
+  const geom = features[0].geometry;
+  let coords;
+  if (geom.type === 'Polygon')      coords = geom.coordinates[0];
+  else if (geom.type === 'MultiPolygon') coords = geom.coordinates[0][0];
+  else return null;
+
+  const lng = coords.reduce((s, c) => s + c[0], 0) / coords.length;
+  const lat = coords.reduce((s, c) => s + c[1], 0) / coords.length;
+  return [lng, lat];
 }

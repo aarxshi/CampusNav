@@ -172,6 +172,7 @@ function resetRoute() {
   document.getElementById('routeCard').classList.remove('visible');
   clearRouteStates();
   clearMapSelected();
+  clearRoute();
   showToast('Route cleared');
 }
 
@@ -207,8 +208,35 @@ function findRoute() {
   const { path, dist } = dijkstra(from, to);
   if (!path.length || !isFinite(dist)) { showToast('No route found'); return; }
 
+  // Highlight start + end on map
   setRouteStates(from, to);
 
+  // ── Real path routing ──────────────────────────────
+  if (Router.isReady()) {
+    const fromCenter = getBuildingCenter(from);
+    const toCenter   = getBuildingCenter(to);
+
+    if (fromCenter && toCenter) {
+      const route = Router.find(fromCenter, toCenter);
+      if (route) {
+        drawRoute(route.coords);
+        // Fit map to show the full route
+        const lngs = route.coords.map(c => c[0]);
+        const lats = route.coords.map(c => c[1]);
+        map.fitBounds(
+          [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+          { padding: { top: 80, bottom: window.innerWidth < 768 ? 400 : 80, left: 80, right: 80 }, duration: 700 }
+        );
+      } else {
+        showToast('No path found between these buildings');
+        clearRoute();
+      }
+    }
+  } else {
+    showToast('Router still loading, try again shortly');
+  }
+
+  // Stats — use real distance if router found a path, else estimated
   const mins = Math.max(1, Math.round(dist / 80));
   document.getElementById('rDist').textContent  = Math.round(dist);
   document.getElementById('rTime').textContent  = '~' + mins;
