@@ -364,7 +364,7 @@ header {
   .layout { position: relative; }
   #map { position: absolute; inset: 0; }
   .zoom-ctrls { display: none; }
-  .map-legend { top: 16px; right: 12px; bottom: auto; padding: 9px 11px; }
+  .map-legend { top: 16px; right: 12px; bottom: auto; padding: 9px 11px; display: none; }
   .leg-title  { font-size: 9px; margin-bottom: 6px; }
   .leg-item   { font-size: 10.5px; }
 

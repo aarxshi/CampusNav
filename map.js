@@ -32,7 +32,7 @@ map.on('load', () => {
   map.addLayer({
     id: 'overlay-layer', source: 'overlay', type: 'raster',
     paint: {
-      'raster-opacity': 0.92,
+      'raster-opacity': 0.88,
       'raster-saturation': -0.15,
       'raster-brightness-min': 0.04,
       'raster-contrast': -0.04,
@@ -112,37 +112,30 @@ map.on('load', () => {
     paint: { 'line-color': '#c8bfb0', 'line-width': 1.5, 'line-dasharray': [3, 2] },
   });
 
-  /* Route line (drawn on top of campus paths) ──────── */
+  /* Route line ─────────────────────────────────────── */
   map.addSource('route-line', {
     type: 'geojson',
     data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } }
   });
 
-  // Glow underneath
   map.addLayer({
     id: 'route-line-glow', type: 'line', source: 'route-line',
-    paint: {
-      'line-color': '#0ea5e9',
-      'line-width': 10,
-      'line-opacity': 0.15,
-      'line-blur': 4,
-    }
+    paint: { 'line-color': '#2563eb', 'line-width': 12, 'line-opacity': 0.15, 'line-blur': 5 }
   });
 
-  // Main dashed route
   map.addLayer({
     id: 'route-line-main', type: 'line', source: 'route-line',
-    paint: {
-      'line-color': '#0ea5e9',
-      'line-width': 3.5,
-      'line-dasharray': [2, 2],
-    }
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': '#2563eb', 'line-width': 4, 'line-opacity': 1 }
   });
 
   // Initialise router after map loads
   Router.init().then(() => {
     console.log('Router ready');
   });
+
+  // Force route layers to render on top of everything including raster overlay
+  ['route-line-glow','route-line-main'].forEach(id => map.moveLayer(id));
 
   /* Hover pulse ────────────────────────────────────── */
   let hoveredId = null, pulseDir = 1, pulseVal = 0.38;
@@ -244,9 +237,6 @@ function dijkstra(from, to) {
 
 /* ── ROUTE LINE HELPERS ─────────────────────────────── */
 
-/**
- * Draw a route on the map given an array of [lng, lat] coords.
- */
 function drawRoute(coords) {
   if (!map.getSource('route-line')) return;
   map.getSource('route-line').setData({
@@ -255,17 +245,19 @@ function drawRoute(coords) {
   });
 }
 
-/**
- * Clear the route line from the map.
- */
 function clearRoute() {
-  if (!map.getSource('route-line')) return;
-  map.getSource('route-line').setData({
-    type: 'Feature',
-    geometry: { type: 'LineString', coordinates: [] }
-  });
+  if (map.getSource('route-line')) {
+    map.getSource('route-line').setData({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: [] }
+    });
+  }
+  if (map.getSource('route-endpoints')) {
+    map.getSource('route-endpoints').setData({
+      type: 'FeatureCollection', features: []
+    });
+  }
 }
-
 /**
  * Get the centroid of a building polygon by querying rendered features.
  * Falls back to querying source features if not rendered.
@@ -274,11 +266,9 @@ function clearRoute() {
 function getBuildingCenter(bid) {
   const numId = isNaN(bid) ? bid : Number(bid);
 
-  // Try rendered features first (faster)
   let features = map.queryRenderedFeatures({ layers: ['building-fill'] })
     .filter(f => (f.id === numId) || (f.properties?.id == bid));
 
-  // Fall back to source features
   if (!features.length) {
     features = map.querySourceFeatures('buildings')
       .filter(f => (f.id === numId) || (f.properties?.id == bid));
@@ -288,11 +278,25 @@ function getBuildingCenter(bid) {
 
   const geom = features[0].geometry;
   let coords;
-  if (geom.type === 'Polygon')      coords = geom.coordinates[0];
+  if (geom.type === 'Polygon')           coords = geom.coordinates[0];
   else if (geom.type === 'MultiPolygon') coords = geom.coordinates[0][0];
   else return null;
 
-  const lng = coords.reduce((s, c) => s + c[0], 0) / coords.length;
-  const lat = coords.reduce((s, c) => s + c[1], 0) / coords.length;
-  return [lng, lat];
+  // Find the vertex on the building edge closest to the nearest path node
+  const nearestPath = Router.nearestPoint(coords[0]);
+  if (!nearestPath) {
+    // Fallback to centroid
+    return [
+      coords.reduce((s, c) => s + c[0], 0) / coords.length,
+      coords.reduce((s, c) => s + c[1], 0) / coords.length
+    ];
+  }
+
+  // Pick edge vertex closest to the nearest path node
+  let best = coords[0], bestD = Infinity;
+  for (const v of coords) {
+    const d = Math.hypot(v[0] - nearestPath[0], v[1] - nearestPath[1]);
+    if (d < bestD) { bestD = d; best = v; }
+  }
+  return [best[0], best[1]];
 }

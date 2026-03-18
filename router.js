@@ -100,13 +100,12 @@ const Router = (() => {
 
   /* ── Dijkstra on node graph ───────────────────────────── */
   function dijkstra(startIdx, endIdx) {
-    const dist  = new Array(nodes.length).fill(Infinity);
-    const prev  = new Array(nodes.length).fill(-1);
+    const dist     = new Array(nodes.length).fill(Infinity);
+    const prev     = new Array(nodes.length).fill(-1);
     const prevEdge = new Array(nodes.length).fill(null);
-    const visited = new Set();
+    const visited  = new Set();
 
     dist[startIdx] = 0;
-    // Simple priority queue using array (fine for 107 segments → ~200 nodes)
     const pq = [startIdx];
 
     while (pq.length) {
@@ -129,17 +128,22 @@ const Router = (() => {
 
     if (dist[endIdx] === Infinity) return null;
 
-    // Reconstruct path coords
-    const allCoords = [];
+    // Reconstruct — collect segments in reverse then flip
+    const segments = [];
     let cur = endIdx;
-    while (cur !== startIdx) {
-      const seg = prevEdge[cur];
-      if (!seg) break;
-      // prepend segment (reversed so it reads start→end)
-      allCoords.unshift(...seg.slice(0, -1)); // avoid duplicate junction points
+    while (cur !== startIdx && prev[cur] !== -1) {
+      segments.unshift(prevEdge[cur]);
       cur = prev[cur];
     }
-    allCoords.push(nodes[endIdx]); // final node
+
+    if (segments.length === 0) return null;
+
+    // Stitch segments together, avoiding duplicate junction points
+    const allCoords = [...segments[0]];
+    for (let i = 1; i < segments.length; i++) {
+      // Skip first coord of each subsequent segment (duplicate of last)
+      allCoords.push(...segments[i].slice(1));
+    }
 
     return { coords: allCoords, distanceM: dist[endIdx] };
   }
@@ -222,7 +226,6 @@ const Router = (() => {
       const s = nearestNode(startCoord);
       const e = nearestNode(endCoord);
       if (s === -1 || e === -1) return null;
-      console.log(`Router.find: node ${s} → node ${e}, dist to start: ${haversine(startCoord, nodes[s]).toFixed(1)}m, dist to end: ${haversine(endCoord, nodes[e]).toFixed(1)}m`);
       return dijkstra(s, e);
     },
 

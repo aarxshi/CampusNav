@@ -218,19 +218,18 @@ function findRoute() {
 
     if (fromCenter && toCenter) {
       const route = Router.find(fromCenter, toCenter);
-      if (route) {
-        drawRoute(route.coords);
-        // Fit map to show the full route
-        const lngs = route.coords.map(c => c[0]);
-        const lats = route.coords.map(c => c[1]);
-        map.fitBounds(
-          [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-          { padding: { top: 80, bottom: window.innerWidth < 768 ? 400 : 80, left: 80, right: 80 }, duration: 700 }
-        );
-      } else {
-        showToast('No path found between these buildings');
-        clearRoute();
-      }
+        if (route && route.coords.length > 2) {
+          drawRoute(route.coords);
+          const lngs = route.coords.map(c => c[0]);
+          const lats = route.coords.map(c => c[1]);
+          map.fitBounds(
+            [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+            { padding: { top: 80, bottom: window.innerWidth < 768 ? 400 : 80, left: 80, right: 80 }, duration: 700 }
+          );
+        } else {
+          showToast('No path found between these buildings');
+          clearRoute();
+        }
     }
   } else {
     showToast('Router still loading, try again shortly');
