@@ -14,7 +14,7 @@ const BUILDINGS = {
   2:  { name:'Building 2',  type:'Amenities', depts:['Library'],                                                              img:null },
   3:  { name:'Building 3',  type:'Academic',  depts:['Automobile Engineering'],                                               img:null },
   4:  { name:'Building 4',  type:'Academic',  depts:['Civil Engineering','Construction Tech & Management','Mathematics'],      img:null },
-  5:  { name:'Building 5',  type:'Academic',  depts:['Mechanical Engineering'],                                               img:null, entrance:[77.5677356636611, 12.908646809855341] },
+  5:  { name:'Building 5',  type:'Academic',  depts:['Mechanical Engineering'],                                               img:null, entrance:[77.56773533308862, 12.908673572325771] },
   6:  { name:'Building 6',  type:'Academic',  depts:['Mechanical Lab Complex'],                                               img:null },
   7:  { name:'Building 7',  type:'Academic',  depts:['Electrical Engineering','Biological Science'],                          img:null, entrance:[77.56770458030661, 12.908400496230897] },
   8:  { name:'Building 8',  type:'Academic',  depts:['Industrial Engineering & Management'],                                  img:null },
