@@ -120,13 +120,19 @@ map.on('load', () => {
 
   map.addLayer({
     id: 'route-line-glow', type: 'line', source: 'route-line',
-    paint: { 'line-color': '#2563eb', 'line-width': 12, 'line-opacity': 0.15, 'line-blur': 5 }
+    paint: { 'line-color': '#4285F4', 'line-width': 12, 'line-opacity': 0.15, 'line-blur': 5 }
+  });
+
+  map.addLayer({
+    id: 'route-line-border', type: 'line', source: 'route-line',
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': 0.5 }
   });
 
   map.addLayer({
     id: 'route-line-main', type: 'line', source: 'route-line',
     layout: { 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': '#2563eb', 'line-width': 4, 'line-opacity': 1 }
+    paint: { 'line-color': '#4285F4', 'line-width': 4, 'line-opacity': 1 }
   });
 
   // Initialise router after map loads
@@ -135,7 +141,7 @@ map.on('load', () => {
   });
 
   // Force route layers to render on top of everything including raster overlay
-  ['route-line-glow','route-line-main'].forEach(id => map.moveLayer(id));
+  ['route-line-glow','route-line-border','route-line-main'].forEach(id => map.moveLayer(id));
 
   /* Hover pulse ────────────────────────────────────── */
   let hoveredId = null, pulseDir = 1, pulseVal = 0.38;
@@ -264,39 +270,24 @@ function clearRoute() {
  * Returns [lng, lat] or null.
  */
 function getBuildingCenter(bid) {
-  const numId = isNaN(bid) ? bid : Number(bid);
+  const b = BUILDINGS[String(bid)];
+  if (b?.entrance) return b.entrance;
 
+  const numId = isNaN(bid) ? bid : Number(bid);
   let features = map.queryRenderedFeatures({ layers: ['building-fill'] })
     .filter(f => (f.id === numId) || (f.properties?.id == bid));
-
   if (!features.length) {
     features = map.querySourceFeatures('buildings')
       .filter(f => (f.id === numId) || (f.properties?.id == bid));
   }
-
   if (!features.length) return null;
-
   const geom = features[0].geometry;
   let coords;
   if (geom.type === 'Polygon')           coords = geom.coordinates[0];
   else if (geom.type === 'MultiPolygon') coords = geom.coordinates[0][0];
   else return null;
-
-  // Find the vertex on the building edge closest to the nearest path node
-  const nearestPath = Router.nearestPoint(coords[0]);
-  if (!nearestPath) {
-    // Fallback to centroid
-    return [
-      coords.reduce((s, c) => s + c[0], 0) / coords.length,
-      coords.reduce((s, c) => s + c[1], 0) / coords.length
-    ];
-  }
-
-  // Pick edge vertex closest to the nearest path node
-  let best = coords[0], bestD = Infinity;
-  for (const v of coords) {
-    const d = Math.hypot(v[0] - nearestPath[0], v[1] - nearestPath[1]);
-    if (d < bestD) { bestD = d; best = v; }
-  }
-  return [best[0], best[1]];
+  return [
+    coords.reduce((s, c) => s + c[0], 0) / coords.length,
+    coords.reduce((s, c) => s + c[1], 0) / coords.length
+  ];
 }
