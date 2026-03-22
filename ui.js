@@ -132,6 +132,15 @@ function selectBuilding(bid) {
   // Switch to buildings tab properly
   switchTab('buildings');
 
+  // On mobile, snap sheet to full so the card is fully visible
+  if (window.innerWidth < 768) {
+    setSheet('full');
+    setTimeout(() => {
+      const card = document.getElementById('infoCard');
+      if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 320);
+  }
+
   // Map highlight
   setMapSelected(bid);
 }
@@ -262,8 +271,8 @@ function findRoute() {
 /* ════════════════════════════════════════════════════════
    BUILDING LIST
 ════════════════════════════════════════════════════════ */
-const CAT_ORDER  = ['Academic', 'Amenities', 'Hostels', 'Parking'];
-const CAT_COLORS = { Academic: '#0ea5e9', Amenities: '#8b5cf6', Hostels: '#dc2626', Parking: '#78716c' };
+const CAT_ORDER  = ['Academic', 'Amenities', 'Hostels', 'Gates', 'Parking'];
+const CAT_COLORS = { Academic: '#0ea5e9', Amenities: '#8b5cf6', Hostels: '#dc2626', Gates: '#ca8a04', Parking: '#78716c' };
 
 function renderList(filter = '') {
   const fl = filter.toLowerCase();

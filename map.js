@@ -271,23 +271,45 @@ function clearRoute() {
  */
 function getBuildingCenter(bid) {
   const b = BUILDINGS[String(bid)];
-  if (b?.entrance) return b.entrance;
-
   const numId = isNaN(bid) ? bid : Number(bid);
+
   let features = map.queryRenderedFeatures({ layers: ['building-fill'] })
     .filter(f => (f.id === numId) || (f.properties?.id == bid));
   if (!features.length) {
     features = map.querySourceFeatures('buildings')
       .filter(f => (f.id === numId) || (f.properties?.id == bid));
   }
-  if (!features.length) return null;
+  if (!features.length) return b?.entrance || null;
+
   const geom = features[0].geometry;
-  let coords;
-  if (geom.type === 'Polygon')           coords = geom.coordinates[0];
-  else if (geom.type === 'MultiPolygon') coords = geom.coordinates[0][0];
-  else return null;
-  return [
-    coords.reduce((s, c) => s + c[0], 0) / coords.length,
-    coords.reduce((s, c) => s + c[1], 0) / coords.length
+  let ring;
+  if (geom.type === 'Polygon')           ring = geom.coordinates[0];
+  else if (geom.type === 'MultiPolygon') ring = geom.coordinates[0][0];
+  else return b?.entrance || null;
+
+  // Find the path node closest to ANY vertex of the building polygon
+  // This reliably finds stub endpoints even for large/rotated buildings
+  const allNodes = Router._nodes();
+  let bestNode = null, bestDist = Infinity;
+
+  for (const vertex of ring) {
+    for (const node of allNodes) {
+      const d = Math.hypot(vertex[0] - node[0], vertex[1] - node[1]);
+      if (d < bestDist) { bestDist = d; bestNode = node; }
+    }
+  }
+
+  // Use manual entrance if it's closer to a path node than the polygon method
+  if (b?.entrance) {
+    const nearestToEntrance = Router.nearestPoint(b.entrance);
+    if (nearestToEntrance) {
+      const entranceDist = Math.hypot(b.entrance[0] - nearestToEntrance[0], b.entrance[1] - nearestToEntrance[1]);
+      if (entranceDist < bestDist) return b.entrance;
+    }
+  }
+
+  return bestNode || [
+    ring.reduce((s, c) => s + c[0], 0) / ring.length,
+    ring.reduce((s, c) => s + c[1], 0) / ring.length
   ];
 }
