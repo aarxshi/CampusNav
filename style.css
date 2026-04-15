@@ -303,28 +303,8 @@ header {
 .zbtn { width: 36px; height: 36px; background: none; border: none; border-bottom: 1px solid var(--border); font-size: 18px; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background .12s, color .12s; }
 .zbtn:last-child { border-bottom: none; }
 .zbtn:hover { background: var(--surface2); color: var(--accent); }
-.zbtn.gps-active { color: #2563eb; }
-.zbtn.gps-active svg { animation: gps-spin 1.5s linear infinite; }
-@keyframes gps-spin { to { transform: rotate(360deg); } }
-
-/* GPS dot on map */
-.gps-dot-wrap { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; }
-.gps-dot {
-  width: 14px; height: 14px; background: #2563eb;
-  border: 2.5px solid #fff; border-radius: 50%;
-  box-shadow: 0 0 0 0 rgba(37,99,235,0.4);
-  animation: gps-pulse 2s ease-out infinite;
-}
-.gps-dot.gps-stale { background: #94a3b8; box-shadow: none; animation: none; }
-@keyframes gps-pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(37,99,235,0.45); }
   70%  { box-shadow: 0 0 0 10px rgba(37,99,235,0); }
   100% { box-shadow: 0 0 0 0 rgba(37,99,235,0); }
-}
-.gps-accuracy {
-  position: absolute; border-radius: 50%;
-  background: rgba(37,99,235,0.12); border: 1px solid rgba(37,99,235,0.25);
-  pointer-events: none;
 }
 
 /* ── TOAST ──────────────────────────────────────────── */

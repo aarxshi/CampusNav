@@ -29,9 +29,6 @@ function switchTab(name) {
 }
 
 /* ════════════════════════════════════════════════════════
-   SEARCH — filters list AND highlights matching buildings on map
-════════════════════════════════════════════════════════ */
-/* ════════════════════════════════════════════════════════
    SEARCH — filters list, highlights + flies to buildings
 ════════════════════════════════════════════════════════ */
 function filterList(q) {
@@ -57,14 +54,12 @@ function highlightSearch(q) {
   });
   _searchHighlighted = matches;
 
-  // Fly to first match if map is loaded
   if (matches.length > 0 && map.loaded()) {
     flyToBuilding(matches[0]);
   }
 }
 
 function flyToBuilding(bid) {
-  // Query the feature geometry to get its center
   const features = map.querySourceFeatures('buildings', {
     filter: ['==', ['id'], isNaN(bid) ? bid : Number(bid)]
   });
@@ -72,7 +67,6 @@ function flyToBuilding(bid) {
     const geom = features[0].geometry;
     let cx, cy;
     if (geom.type === 'Polygon') {
-      // Centroid of first ring
       const coords = geom.coordinates[0];
       cx = coords.reduce((s, c) => s + c[0], 0) / coords.length;
       cy = coords.reduce((s, c) => s + c[1], 0) / coords.length;
@@ -107,12 +101,10 @@ function selectBuilding(bid) {
   const b = BUILDINGS[bid];
   if (!b) return;
 
-  // Highlight in list
   document.querySelectorAll('.brow').forEach(r => r.classList.remove('active'));
   const row = document.querySelector(`.brow[data-id="${bid}"]`);
   if (row) { row.classList.add('active'); row.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
 
-  // Fill info card
   const isNum = !isNaN(bid);
   document.getElementById('cNum').textContent  = isNum ? 'Building ' + bid : b.name;
   document.getElementById('cName').textContent = b.name;
@@ -128,11 +120,8 @@ function selectBuilding(bid) {
   }
 
   document.getElementById('infoCard').classList.add('visible');
-
-  // Switch to buildings tab properly
   switchTab('buildings');
 
-  // On mobile, snap sheet to full so the card is fully visible
   if (window.innerWidth < 768) {
     setSheet('full');
     setTimeout(() => {
@@ -141,7 +130,6 @@ function selectBuilding(bid) {
     }, 320);
   }
 
-  // Map highlight
   setMapSelected(bid);
 }
 
@@ -211,74 +199,45 @@ function waypointOpacity(pos) { return 1 - 0.55 * Math.sin(pos * Math.PI); }
 function findRoute() {
   const from = document.getElementById('fromSel').value;
   const to   = document.getElementById('toSel').value;
-  if (!from || !to)  { showToast('⚠ Select both buildings'); return; }
-  if (from === to)   { showToast('⚠ Same start and destination'); return; }
+  if (!from || !to) { showToast('⚠ Select both buildings'); return; }
+  if (from === to)  { showToast('⚠ Same start and destination'); return; }
 
-  // GPS routing — use live location directly
-  if (from === 'GPS') {
-    if (!_gpsMarker) { showToast('📍 Enable My Location first'); return; }
-    const lngLat = _gpsMarker.getLngLat();
-    const toCenter = getBuildingCenter(to);
-    if (!toCenter) { showToast('No route found'); return; }
-    const route = Router.find([lngLat.lng, lngLat.lat], toCenter);
-    if (!route) { showToast('No path found'); return; }
+  // Skip dijkstra for buildings not in GRAPH (e.g. gates) — go straight to Router
+  const inGraph = GRAPH[from] && GRAPH[to];
+  const { path, dist } = inGraph ? dijkstra(from, to) : { path: [from, to], dist: 0 };
+
+  setRouteStates(from, to);
+
+  if (!Router.isReady()) { showToast('Router still loading, try again shortly'); return; }
+  if (BUILDINGS[from]?.unreachable) { showToast('⚠ ' + BUILDINGS[from].name + ' is not reachable on campus'); return; }
+  if (BUILDINGS[to]?.unreachable)   { showToast('⚠ ' + BUILDINGS[to].name   + ' is not reachable on campus'); return; }
+
+  const fromRough  = getBuildingCenter(from);
+  const toRough    = getBuildingCenter(to);
+  const fromCenter = getBuildingCenter(from, toRough);
+  const toCenter   = getBuildingCenter(to, fromRough);
+
+  if (!fromCenter || !toCenter) { showToast('Could not resolve buildings'); return; }
+
+  const route = Router.find(fromCenter, toCenter);
+  if (route && route.coords.length > 1) {
     drawRoute(route.coords);
-    setRouteStates(null, to);
-    const metres = Math.round(route.distanceM);
-    const mins   = Math.max(1, Math.round(metres / 80));
-    document.getElementById('rDist').textContent  = metres;
-    document.getElementById('rTime').textContent  = '~' + mins;
-    document.getElementById('rStops').textContent = '—';
-    document.getElementById('rSteps').innerHTML =
-      `<div class="step"><div class="sbubble" style="background:#16a34a18;border:1.5px solid #16a34a;color:#16a34a">📍</div><div class="sbody"><div class="sname">Your location</div><div class="stype">GPS</div></div></div>` +
-      `<div class="step"><div class="sbubble" style="background:#dc262618;border:1.5px solid #dc2626;color:#dc2626">→</div><div class="sbody"><div class="sname">${BUILDINGS[to]?.name || to}</div><div class="stype">${BUILDINGS[to]?.type || ''}</div></div></div>`;
-    document.getElementById('routeCard').style.display = '';
-    collapseNavOnMobile();
-    map.fitBounds([[Math.min(...route.coords.map(c=>c[0])), Math.min(...route.coords.map(c=>c[1]))],
-                   [Math.max(...route.coords.map(c=>c[0])), Math.max(...route.coords.map(c=>c[1]))]],
-      { padding: { top:80, bottom: window.innerWidth < 768 ? 320 : 80, left:80, right:80 }, duration:700 });
+    const lngs = route.coords.map(c => c[0]);
+    const lats  = route.coords.map(c => c[1]);
+    map.fitBounds(
+      [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+      { padding: { top: 80, bottom: window.innerWidth < 768 ? 400 : 80, left: 80, right: 80 }, duration: 700 }
+    );
+  } else {
+    showToast('No path found between these buildings');
+    clearRoute();
     return;
   }
 
-  const { path, dist } = dijkstra(from, to);
-  if (!path.length || !isFinite(dist)) { showToast('No route found'); return; }
-
-  // Highlight start + end on map
-  setRouteStates(from, to);
-
-  // ── Real path routing ──────────────────────────────
-  if (Router.isReady()) {
-    if (BUILDINGS[from]?.unreachable) { showToast('⚠ ' + BUILDINGS[from].name + ' is not reachable on campus'); return; }
-    if (BUILDINGS[to]?.unreachable)   { showToast('⚠ ' + BUILDINGS[to].name   + ' is not reachable on campus'); return; }
-
-    const fromRough  = getBuildingCenter(from);
-    const toRough    = getBuildingCenter(to);
-    const fromCenter = getBuildingCenter(from, toRough);
-    const toCenter   = getBuildingCenter(to, fromRough);
-
-    if (fromCenter && toCenter) {
-      const route = Router.find(fromCenter, toCenter);
-        if (route && route.coords.length > 2) {
-          drawRoute(route.coords);
-          const lngs = route.coords.map(c => c[0]);
-          const lats = route.coords.map(c => c[1]);
-          map.fitBounds(
-            [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-            { padding: { top: 80, bottom: window.innerWidth < 768 ? 320 : 80, left: 80, right: 80 }, duration: 700 }
-          );
-          collapseNavOnMobile();
-        } else {
-          showToast('No path found between these buildings');
-          clearRoute();
-        }
-    }
-  } else {
-    showToast('Router still loading, try again shortly');
-  }
-
-  // Stats — use real distance if router found a path, else estimated
-  const mins = Math.max(1, Math.round(dist / 80));
-  document.getElementById('rDist').textContent  = Math.round(dist);
+  // Prefer real route distance, fall back to dijkstra estimate
+  const realDist = route?.distanceM ?? dist;
+  const mins = Math.max(1, Math.round(realDist / 80));
+  document.getElementById('rDist').textContent  = Math.round(realDist);
   document.getElementById('rTime').textContent  = '~' + mins;
   document.getElementById('rStops').textContent = path.length;
 
@@ -317,21 +276,24 @@ function renderList(filter = '') {
     if (!grouped[b.type]) grouped[b.type] = [];
     grouped[b.type].push({ bid, ...b });
   }
+
   if (!filter) {
     const fs = document.getElementById('fromSel');
     const ts = document.getElementById('toSel');
+    // GPS option in From dropdown only
     fs.innerHTML = '<option value="">Choose building…</option>';
     ts.innerHTML = '<option value="">Choose building…</option>';
-    fs.add(new Option('📍 My current location', 'GPS'));
     for (const [bid, b] of Object.entries(BUILDINGS)) {
-      if (b.unreachable) continue;
-      fs.add(new Option(`${b.name}${isNaN(bid) ? '' : ' (' + bid + ')'}`, bid));
-      ts.add(new Option(`${b.name}${isNaN(bid) ? '' : ' (' + bid + ')'}`, bid));
+      const cleanName = b.name.replace(/\s*\(\d+\)\s*$/, '');
+      fs.add(new Option(cleanName, bid));
+      ts.add(new Option(cleanName, bid));
     }
   }
+
   let html = '';
   for (const cat of CAT_ORDER) {
     if (!grouped[cat]) continue;
+    if (cat === 'Gates') continue;  // hidden from list, still in nav dropdowns
     html += `<div class="cat-label">${cat}</div>`;
     grouped[cat].sort((a, b) => (isNaN(a.bid) ? 9999 : +a.bid) - (isNaN(b.bid) ? 9999 : +b.bid));
     for (const b of grouped[cat]) {
@@ -366,9 +328,8 @@ function showToast(msg) {
 ════════════════════════════════════════════════════════ */
 let sheetState = 'half';
 
-// Fixed sheet height in CSS is 70vh. Half = translate down 50% of that = 35vh
 const SHEET_HEIGHT_VH = 0.70;
-const HALF_OFFSET_VH  = 0.35; // translateY this much to show top half
+const HALF_OFFSET_VH  = 0.35;
 
 function setSheet(state) {
   if (window.innerWidth >= 768) return;
@@ -383,16 +344,12 @@ function setSheet(state) {
   if (state === 'full') {
     sidebar.style.transform = 'translateY(0)';
     if (fab) fab.style.display = 'none';
-
   } else if (state === 'half') {
-    // Use vh-based offset so it works even when sheet was hidden
     const offset = window.innerHeight * HALF_OFFSET_VH;
     sidebar.style.transform = `translateY(${offset}px)`;
     if (fab) fab.style.display = 'none';
-
-  } else { // hidden
+  } else {
     sidebar.style.transform = `translateY(110%)`;
-    // Delay adding class so transition plays first
     setTimeout(() => sidebar.classList.add('sheet-hidden'), 300);
     if (fab) fab.style.display = 'flex';
   }
@@ -405,14 +362,11 @@ document.addEventListener('DOMContentLoaded', () => {
   renderList();
 
   if (window.innerWidth < 768) {
-    // Start at half after layout settles
     requestAnimationFrame(() => requestAnimationFrame(() => setSheet('half')));
 
-    // Sync mobile search input with desktop one
     const mobileSearch = document.getElementById('searchInputMobile');
     if (mobileSearch) mobileSearch.addEventListener('input', e => filterList(e.target.value));
 
-    // Tap map = collapse to half (not hidden)
     document.getElementById('map').addEventListener('click', e => {
       if (e.target.closest('.map-badge') || e.target.closest('#mobileFab')) return;
       if (sheetState === 'full') setSheet('half');
@@ -463,7 +417,7 @@ window.addEventListener('resize', () => {
     function onMove(pos) {
       if (!dragging) return;
       if (mob()) {
-        const delta = startPos - pos; // up = positive = bigger
+        const delta = startPos - pos;
         const maxH  = window.innerHeight * 0.90;
         const newH  = Math.min(maxH, Math.max(MIN_H_PX, startSize + delta));
         sidebar.style.height    = newH + 'px';
@@ -484,10 +438,8 @@ window.addEventListener('resize', () => {
       document.body.style.userSelect = '';
       document.body.style.cursor     = '';
       sidebar.style.transition = '';
-      // After resize on mobile, stay at full (user dragged = they want it open)
     }
 
-    // Touch
     handle.addEventListener('touchstart', e => {
       onStart(mob() ? e.touches[0].clientY : e.touches[0].clientX);
     }, { passive: true });
@@ -496,12 +448,10 @@ window.addEventListener('resize', () => {
     }, { passive: true });
     document.addEventListener('touchend', onEnd);
 
-    // Mouse
     handle.addEventListener('mousedown', e => { onStart(mob() ? e.clientY : e.clientX); e.preventDefault(); });
     document.addEventListener('mousemove', e => { if (dragging) onMove(mob() ? e.clientY : e.clientX); });
     document.addEventListener('mouseup', onEnd);
 
-    // Tap handle (no drag) = toggle half ↔ full
     let tapY = 0, tapping = false;
     handle.addEventListener('touchstart', e => { tapY = e.touches[0].clientY; tapping = true; }, { passive: true });
     handle.addEventListener('touchend', e => {
@@ -526,12 +476,4 @@ function toggleLegend() {
   _legendOpen = !_legendOpen;
   document.getElementById('legBody').style.display = _legendOpen ? '' : 'none';
   document.getElementById('legArrow').textContent  = _legendOpen ? '▾' : '▸';
-}
-
-function collapseNavOnMobile() {
-  if (window.innerWidth >= 768) return;
-  const sidebar = document.getElementById('sidebar');
-  if (!sidebar) return;
-  // Slide sheet down to ~35% so map is visible but route card peeks
-  sidebar.style.height = '42vh';
 }
