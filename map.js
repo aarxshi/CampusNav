@@ -265,51 +265,138 @@ function clearRoute() {
   }
 }
 /**
- * Get the centroid of a building polygon by querying rendered features.
- * Falls back to querying source features if not rendered.
- * Returns [lng, lat] or null.
+ * Get the routing anchor point for a building.
+ *
+ * - unreachable:true → returns null
+ * - entrances:[...]  → picks door whose nearest path-node is closest to origin
+ * - entrance:[...]   → single door, used directly
+ * - fallback         → polygon centroid
  */
-function getBuildingCenter(bid) {
+function getBuildingCenter(bid, origin) {
   const b = BUILDINGS[String(bid)];
-  const numId = isNaN(bid) ? bid : Number(bid);
+  if (!b) return null;
+  if (b.unreachable) return null;
 
+  if (b.entrances && b.entrances.length) {
+    if (!origin || !Router.isReady()) return b.entrances[0];
+    let best = b.entrances[0], bestDist = Infinity;
+    for (const e of b.entrances) {
+      const snap = Router.nearestPoint(e);
+      if (!snap) continue;
+      const d = Math.hypot(snap[0] - origin[0], snap[1] - origin[1]);
+      if (d < bestDist) { bestDist = d; best = e; }
+    }
+    return best;
+  }
+
+  if (b.entrance) return b.entrance;
+
+  // Polygon centroid fallback
+  const numId = isNaN(bid) ? bid : Number(bid);
   let features = map.queryRenderedFeatures({ layers: ['building-fill'] })
     .filter(f => (f.id === numId) || (f.properties?.id == bid));
   if (!features.length) {
     features = map.querySourceFeatures('buildings')
       .filter(f => (f.id === numId) || (f.properties?.id == bid));
   }
-  if (!features.length) return b?.entrance || null;
-
+  if (!features.length) return null;
   const geom = features[0].geometry;
   let ring;
   if (geom.type === 'Polygon')           ring = geom.coordinates[0];
   else if (geom.type === 'MultiPolygon') ring = geom.coordinates[0][0];
-  else return b?.entrance || null;
-
-  // Find the path node closest to ANY vertex of the building polygon
-  // This reliably finds stub endpoints even for large/rotated buildings
-  const allNodes = Router._nodes();
-  let bestNode = null, bestDist = Infinity;
-
-  for (const vertex of ring) {
-    for (const node of allNodes) {
-      const d = Math.hypot(vertex[0] - node[0], vertex[1] - node[1]);
-      if (d < bestDist) { bestDist = d; bestNode = node; }
-    }
-  }
-
-  // Use manual entrance if it's closer to a path node than the polygon method
-  if (b?.entrance) {
-    const nearestToEntrance = Router.nearestPoint(b.entrance);
-    if (nearestToEntrance) {
-      const entranceDist = Math.hypot(b.entrance[0] - nearestToEntrance[0], b.entrance[1] - nearestToEntrance[1]);
-      if (entranceDist < bestDist) return b.entrance;
-    }
-  }
-
-  return bestNode || [
+  else return null;
+  return [
     ring.reduce((s, c) => s + c[0], 0) / ring.length,
-    ring.reduce((s, c) => s + c[1], 0) / ring.length
+    ring.reduce((s, c) => s + c[1], 0) / ring.length,
   ];
 }
+
+/* ── GPS / LOCATION ─────────────────────────────────── */
+let _gpsWatchId   = null;
+let _gpsMarker    = null;
+let _gpsAccuracy  = null;
+let _gpsCentre    = true;   // fly to position on first fix
+let _gpsStale     = false;
+let _gpsPosition  = null;   // [lng, lat] of latest fix
+
+function getGPSPosition() { return _gpsPosition; }
+
+function toggleGPS() {
+  if (_gpsWatchId !== null) {
+    stopGPS();
+  } else {
+    startGPS();
+  }
+}
+
+function startGPS() {
+  if (!navigator.geolocation) {
+    showToast('GPS not supported on this device');
+    return;
+  }
+  const btn = document.getElementById('gpsBtn');
+  btn.classList.add('gps-active');
+  _gpsCentre = true;
+
+  _gpsWatchId = navigator.geolocation.watchPosition(
+    onGPSUpdate,
+    onGPSError,
+    { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
+  );
+}
+
+function stopGPS() {
+  if (_gpsWatchId !== null) {
+    navigator.geolocation.clearWatch(_gpsWatchId);
+    _gpsWatchId = null;
+  }
+  _gpsPosition = null;
+  if (_gpsMarker)   { _gpsMarker.remove();   _gpsMarker   = null; }
+  if (_gpsAccuracy) { _gpsAccuracy.remove(); _gpsAccuracy = null; }
+  document.getElementById('gpsBtn').classList.remove('gps-active');
+}
+
+function onGPSUpdate(pos) {
+  const { longitude: lng, latitude: lat, accuracy } = pos.coords;
+  _gpsStale = false;
+  _gpsPosition = [lng, lat];
+
+  // Trigger live rerouting in ui.js if a GPS route is active
+  if (typeof onGPSPositionUpdate === 'function') onGPSPositionUpdate(_gpsPosition);
+
+
+  // Blue dot
+  if (!_gpsMarker) {
+    const dotWrap = document.createElement('div');
+    dotWrap.className = 'gps-dot-wrap';
+    const dot = document.createElement('div');
+    dot.className = 'gps-dot';
+    dot.id = 'gpsDot';
+    dotWrap.appendChild(dot);
+    _gpsMarker = new maplibregl.Marker({ element: dotWrap, anchor: 'center' })
+      .setLngLat([lng, lat]).addTo(map);
+  } else {
+    _gpsMarker.setLngLat([lng, lat]);
+  }
+
+  // Fly to on first fix, then just re-centre if button tapped again
+  if (_gpsCentre) {
+    map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 18), duration: 800 });
+    _gpsCentre = false;
+  }
+
+  // Stop spinning icon once we have a fix
+  document.getElementById('gpsBtn').classList.remove('gps-active');
+  document.getElementById('gpsIcon').style.color = '#2563eb';
+}
+
+function onGPSError(err) {
+  stopGPS();
+  const msgs = {
+    1: 'Location access denied — please allow in browser settings',
+    2: 'GPS signal lost',
+    3: 'GPS timed out',
+  };
+  showToast('📍 ' + (msgs[err.code] || 'GPS error'));
+}
+

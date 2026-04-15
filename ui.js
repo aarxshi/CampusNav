@@ -29,9 +29,6 @@ function switchTab(name) {
 }
 
 /* ════════════════════════════════════════════════════════
-   SEARCH — filters list AND highlights matching buildings on map
-════════════════════════════════════════════════════════ */
-/* ════════════════════════════════════════════════════════
    SEARCH — filters list, highlights + flies to buildings
 ════════════════════════════════════════════════════════ */
 function filterList(q) {
@@ -57,14 +54,12 @@ function highlightSearch(q) {
   });
   _searchHighlighted = matches;
 
-  // Fly to first match if map is loaded
   if (matches.length > 0 && map.loaded()) {
     flyToBuilding(matches[0]);
   }
 }
 
 function flyToBuilding(bid) {
-  // Query the feature geometry to get its center
   const features = map.querySourceFeatures('buildings', {
     filter: ['==', ['id'], isNaN(bid) ? bid : Number(bid)]
   });
@@ -72,7 +67,6 @@ function flyToBuilding(bid) {
     const geom = features[0].geometry;
     let cx, cy;
     if (geom.type === 'Polygon') {
-      // Centroid of first ring
       const coords = geom.coordinates[0];
       cx = coords.reduce((s, c) => s + c[0], 0) / coords.length;
       cy = coords.reduce((s, c) => s + c[1], 0) / coords.length;
@@ -107,12 +101,10 @@ function selectBuilding(bid) {
   const b = BUILDINGS[bid];
   if (!b) return;
 
-  // Highlight in list
   document.querySelectorAll('.brow').forEach(r => r.classList.remove('active'));
   const row = document.querySelector(`.brow[data-id="${bid}"]`);
   if (row) { row.classList.add('active'); row.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
 
-  // Fill info card
   const isNum = !isNaN(bid);
   document.getElementById('cNum').textContent  = isNum ? 'Building ' + bid : b.name;
   document.getElementById('cName').textContent = b.name;
@@ -128,11 +120,8 @@ function selectBuilding(bid) {
   }
 
   document.getElementById('infoCard').classList.add('visible');
-
-  // Switch to buildings tab properly
   switchTab('buildings');
 
-  // On mobile, snap sheet to full so the card is fully visible
   if (window.innerWidth < 768) {
     setSheet('full');
     setTimeout(() => {
@@ -141,7 +130,6 @@ function selectBuilding(bid) {
     }, 320);
   }
 
-  // Map highlight
   setMapSelected(bid);
 }
 
@@ -172,6 +160,8 @@ function setTo() {
 function swapRoute() {
   const f = document.getElementById('fromSel');
   const t = document.getElementById('toSel');
+  // GPS can only be a start point, block swapping it into destination
+  if (f.value === '__gps__') { showToast('📍 GPS can only be used as start point'); return; }
   [f.value, t.value] = [t.value, f.value];
 }
 
@@ -182,6 +172,8 @@ function resetRoute() {
   clearRouteStates();
   clearMapSelected();
   clearRoute();
+  _activeRouteTo  = null;
+  _lastReroutePos = null;
   showToast('Route cleared');
 }
 
@@ -206,47 +198,146 @@ function gradientColor(pos) {
 function waypointOpacity(pos) { return 1 - 0.55 * Math.sin(pos * Math.PI); }
 
 /* ════════════════════════════════════════════════════════
+   LIVE REROUTING (GPS mode)
+════════════════════════════════════════════════════════ */
+let _activeRouteTo  = null;   // building ID currently being navigated to
+let _lastReroutePos = null;   // [lng,lat] of last reroute trigger
+
+function _distBetween([lng1, lat1], [lng2, lat2]) {
+  return Math.hypot(
+    (lng2 - lng1) * 111320 * Math.cos(lat1 * Math.PI / 180),
+    (lat2 - lat1) * 111320
+  );
+}
+
+// Called by map.js onGPSUpdate on every position fix
+function onGPSPositionUpdate(gpsCoord) {
+  if (!_activeRouteTo || !Router.isReady()) return;
+  // Only reroute if we've moved at least 15m since last reroute
+  if (_lastReroutePos && _distBetween(gpsCoord, _lastReroutePos) < 15) return;
+
+  _lastReroutePos = gpsCoord;
+  const toCenter = getBuildingCenter(_activeRouteTo, gpsCoord);
+  if (!toCenter) return;
+
+  const route = Router.find(gpsCoord, toCenter);
+  if (!route || route.coords.length < 2) return;
+
+  route.coords.unshift(gpsCoord);
+  drawRoute(route.coords);
+
+  // Update stats live
+  const distM = Math.round(route.distanceM);
+  const mins  = Math.max(1, Math.round(route.distanceM / 80));
+  document.getElementById('rDist').textContent = distM;
+  document.getElementById('rTime').textContent = '~' + mins;
+}
+
+/* ════════════════════════════════════════════════════════
    FIND ROUTE
 ════════════════════════════════════════════════════════ */
 function findRoute() {
   const from = document.getElementById('fromSel').value;
   const to   = document.getElementById('toSel').value;
-  if (!from || !to)  { showToast('⚠ Select both buildings'); return; }
-  if (from === to)   { showToast('⚠ Same start and destination'); return; }
+  if (!from || !to) { showToast('⚠ Select both buildings'); return; }
+  if (from === to)  { showToast('⚠ Same start and destination'); return; }
 
-  const { path, dist } = dijkstra(from, to);
-  if (!path.length || !isFinite(dist)) { showToast('No route found'); return; }
+  const isGPS = from === '__gps__';
 
-  // Highlight start + end on map
-  setRouteStates(from, to);
+  /* ── GPS origin ─────────────────────────────────── */
+  if (isGPS) {
+    const gpsCoord = getGPSPosition();
+    if (!gpsCoord)         { showToast('📍 Enable GPS first and wait for a fix'); return; }
+    if (!Router.isReady()) { showToast('Router still loading, try again shortly'); return; }
+    if (BUILDINGS[to]?.unreachable) { showToast('⚠ ' + BUILDINGS[to].name + ' is not reachable on campus'); return; }
 
-  // ── Real path routing ──────────────────────────────
-  if (Router.isReady()) {
-    const fromCenter = getBuildingCenter(from);
-    const toCenter   = getBuildingCenter(to);
+    const toCenter = getBuildingCenter(to, gpsCoord);
+    if (!toCenter) { showToast('Could not resolve destination'); return; }
 
-    if (fromCenter && toCenter) {
-      const route = Router.find(fromCenter, toCenter);
-        if (route && route.coords.length > 2) {
-          drawRoute(route.coords);
-          const lngs = route.coords.map(c => c[0]);
-          const lats = route.coords.map(c => c[1]);
-          map.fitBounds(
-            [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-            { padding: { top: 80, bottom: window.innerWidth < 768 ? 400 : 80, left: 80, right: 80 }, duration: 700 }
-          );
-        } else {
-          showToast('No path found between these buildings');
-          clearRoute();
-        }
-    }
-  } else {
-    showToast('Router still loading, try again shortly');
+    const route = Router.find(gpsCoord, toCenter);
+    if (!route || route.coords.length < 2) { showToast('No path found to that building'); return; }
+
+    // Prepend exact GPS position so the line starts from the blue dot
+    route.coords.unshift(gpsCoord);
+    drawRoute(route.coords);
+
+    // Arm live rerouting
+    _activeRouteTo  = to;
+    _lastReroutePos = gpsCoord;
+
+    // Highlight destination only (no start building to highlight)
+    clearRouteStates();
+    const endId = isNaN(to) ? to : Number(to);
+    try { map.setFeatureState({ source: 'buildings', id: endId }, { routeEnd: true }); } catch (_) {}
+
+    const lngs = route.coords.map(c => c[0]);
+    const lats  = route.coords.map(c => c[1]);
+    map.fitBounds(
+      [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+      { padding: { top: 80, bottom: window.innerWidth < 768 ? 400 : 80, left: 80, right: 80 }, duration: 700 }
+    );
+
+    const distM = Math.round(route.distanceM);
+    const mins  = Math.max(1, Math.round(route.distanceM / 80));
+    document.getElementById('rDist').textContent  = distM;
+    document.getElementById('rTime').textContent  = '~' + mins;
+    document.getElementById('rStops').textContent = '—';
+    document.getElementById('rSteps').innerHTML   = `
+      <div class="step">
+        <div class="sbubble" style="background:#16a34a18;border:1.5px solid #16a34a;color:#16a34a">📍</div>
+        <div class="sbody"><div class="sname">Your location</div><div class="stype">GPS</div></div>
+      </div>
+      <div class="step">
+        <div class="sbubble" style="background:#dc262618;border:1.5px solid #dc2626;color:#dc2626">🏁</div>
+        <div class="sbody">
+          <div class="sname">${BUILDINGS[to]?.name || 'Destination'}</div>
+          <div class="stype">${BUILDINGS[to]?.type || ''}</div>
+        </div>
+      </div>`;
+    document.getElementById('routeCard').classList.add('visible');
+    return;
   }
 
-  // Stats — use real distance if router found a path, else estimated
-  const mins = Math.max(1, Math.round(dist / 80));
-  document.getElementById('rDist').textContent  = Math.round(dist);
+  /* ── Building-to-building ───────────────────────── */
+  _activeRouteTo  = null;   // not GPS, disable live rerouting
+  _lastReroutePos = null;
+
+  // Skip dijkstra for buildings not in GRAPH (e.g. gates) — go straight to Router
+  const inGraph = GRAPH[from] && GRAPH[to];
+  const { path, dist } = inGraph ? dijkstra(from, to) : { path: [from, to], dist: 0 };
+
+  setRouteStates(from, to);
+
+  if (!Router.isReady()) { showToast('Router still loading, try again shortly'); return; }
+  if (BUILDINGS[from]?.unreachable) { showToast('⚠ ' + BUILDINGS[from].name + ' is not reachable on campus'); return; }
+  if (BUILDINGS[to]?.unreachable)   { showToast('⚠ ' + BUILDINGS[to].name   + ' is not reachable on campus'); return; }
+
+  const fromRough  = getBuildingCenter(from);
+  const toRough    = getBuildingCenter(to);
+  const fromCenter = getBuildingCenter(from, toRough);
+  const toCenter   = getBuildingCenter(to, fromRough);
+
+  if (!fromCenter || !toCenter) { showToast('Could not resolve buildings'); return; }
+
+  const route = Router.find(fromCenter, toCenter);
+  if (route && route.coords.length > 1) {
+    drawRoute(route.coords);
+    const lngs = route.coords.map(c => c[0]);
+    const lats  = route.coords.map(c => c[1]);
+    map.fitBounds(
+      [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+      { padding: { top: 80, bottom: window.innerWidth < 768 ? 400 : 80, left: 80, right: 80 }, duration: 700 }
+    );
+  } else {
+    showToast('No path found between these buildings');
+    clearRoute();
+    return;
+  }
+
+  // Prefer real route distance, fall back to dijkstra estimate
+  const realDist = route?.distanceM ?? dist;
+  const mins = Math.max(1, Math.round(realDist / 80));
+  document.getElementById('rDist').textContent  = Math.round(realDist);
   document.getElementById('rTime').textContent  = '~' + mins;
   document.getElementById('rStops').textContent = path.length;
 
@@ -285,19 +376,23 @@ function renderList(filter = '') {
     if (!grouped[b.type]) grouped[b.type] = [];
     grouped[b.type].push({ bid, ...b });
   }
+
   if (!filter) {
     const fs = document.getElementById('fromSel');
     const ts = document.getElementById('toSel');
-    fs.innerHTML = '<option value="">Choose building…</option>';
+    // GPS option in From dropdown only
+    fs.innerHTML = '<option value="">Choose building…</option><option value="__gps__"> My current location</option>';
     ts.innerHTML = '<option value="">Choose building…</option>';
     for (const [bid, b] of Object.entries(BUILDINGS)) {
       fs.add(new Option(b.name, bid));
       ts.add(new Option(b.name, bid));
     }
   }
+
   let html = '';
   for (const cat of CAT_ORDER) {
     if (!grouped[cat]) continue;
+    if (cat === 'Gates') continue;  // hidden from list, still in nav dropdowns
     html += `<div class="cat-label">${cat}</div>`;
     grouped[cat].sort((a, b) => (isNaN(a.bid) ? 9999 : +a.bid) - (isNaN(b.bid) ? 9999 : +b.bid));
     for (const b of grouped[cat]) {
@@ -332,9 +427,8 @@ function showToast(msg) {
 ════════════════════════════════════════════════════════ */
 let sheetState = 'half';
 
-// Fixed sheet height in CSS is 70vh. Half = translate down 50% of that = 35vh
 const SHEET_HEIGHT_VH = 0.70;
-const HALF_OFFSET_VH  = 0.35; // translateY this much to show top half
+const HALF_OFFSET_VH  = 0.35;
 
 function setSheet(state) {
   if (window.innerWidth >= 768) return;
@@ -349,16 +443,12 @@ function setSheet(state) {
   if (state === 'full') {
     sidebar.style.transform = 'translateY(0)';
     if (fab) fab.style.display = 'none';
-
   } else if (state === 'half') {
-    // Use vh-based offset so it works even when sheet was hidden
     const offset = window.innerHeight * HALF_OFFSET_VH;
     sidebar.style.transform = `translateY(${offset}px)`;
     if (fab) fab.style.display = 'none';
-
-  } else { // hidden
+  } else {
     sidebar.style.transform = `translateY(110%)`;
-    // Delay adding class so transition plays first
     setTimeout(() => sidebar.classList.add('sheet-hidden'), 300);
     if (fab) fab.style.display = 'flex';
   }
@@ -371,14 +461,11 @@ document.addEventListener('DOMContentLoaded', () => {
   renderList();
 
   if (window.innerWidth < 768) {
-    // Start at half after layout settles
     requestAnimationFrame(() => requestAnimationFrame(() => setSheet('half')));
 
-    // Sync mobile search input with desktop one
     const mobileSearch = document.getElementById('searchInputMobile');
     if (mobileSearch) mobileSearch.addEventListener('input', e => filterList(e.target.value));
 
-    // Tap map = collapse to half (not hidden)
     document.getElementById('map').addEventListener('click', e => {
       if (e.target.closest('.map-badge') || e.target.closest('#mobileFab')) return;
       if (sheetState === 'full') setSheet('half');
@@ -429,7 +516,7 @@ window.addEventListener('resize', () => {
     function onMove(pos) {
       if (!dragging) return;
       if (mob()) {
-        const delta = startPos - pos; // up = positive = bigger
+        const delta = startPos - pos;
         const maxH  = window.innerHeight * 0.90;
         const newH  = Math.min(maxH, Math.max(MIN_H_PX, startSize + delta));
         sidebar.style.height    = newH + 'px';
@@ -450,10 +537,8 @@ window.addEventListener('resize', () => {
       document.body.style.userSelect = '';
       document.body.style.cursor     = '';
       sidebar.style.transition = '';
-      // After resize on mobile, stay at full (user dragged = they want it open)
     }
 
-    // Touch
     handle.addEventListener('touchstart', e => {
       onStart(mob() ? e.touches[0].clientY : e.touches[0].clientX);
     }, { passive: true });
@@ -462,12 +547,10 @@ window.addEventListener('resize', () => {
     }, { passive: true });
     document.addEventListener('touchend', onEnd);
 
-    // Mouse
     handle.addEventListener('mousedown', e => { onStart(mob() ? e.clientY : e.clientX); e.preventDefault(); });
     document.addEventListener('mousemove', e => { if (dragging) onMove(mob() ? e.clientY : e.clientX); });
     document.addEventListener('mouseup', onEnd);
 
-    // Tap handle (no drag) = toggle half ↔ full
     let tapY = 0, tapping = false;
     handle.addEventListener('touchstart', e => { tapY = e.touches[0].clientY; tapping = true; }, { passive: true });
     handle.addEventListener('touchend', e => {
@@ -483,3 +566,13 @@ window.addEventListener('resize', () => {
     });
   });
 })();
+
+/* ════════════════════════════════════════════════════════
+   LEGEND TOGGLE
+════════════════════════════════════════════════════════ */
+let _legendOpen = true;
+function toggleLegend() {
+  _legendOpen = !_legendOpen;
+  document.getElementById('legBody').style.display = _legendOpen ? '' : 'none';
+  document.getElementById('legArrow').textContent  = _legendOpen ? '▾' : '▸';
+}

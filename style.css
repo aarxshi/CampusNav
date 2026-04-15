@@ -293,8 +293,9 @@ header {
   border: 1px solid var(--border); border-radius: 10px;
   backdrop-filter: blur(8px); box-shadow: var(--shadow-md);
 }
-.map-legend { bottom: 28px; right: 16px; padding: 12px 14px; }
-.leg-title { font-size: 9.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--text-faint); margin-bottom: 8px; }
+.map-legend { bottom: 28px; right: 16px; padding: 10px 12px; }
+.leg-label { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 6px; cursor: pointer; user-select: none; }
+.leg-label:hover { color: var(--text-muted); }
 .leg-item { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-muted); padding: 2px 0; }
 .leg-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
 
@@ -302,6 +303,29 @@ header {
 .zbtn { width: 36px; height: 36px; background: none; border: none; border-bottom: 1px solid var(--border); font-size: 18px; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background .12s, color .12s; }
 .zbtn:last-child { border-bottom: none; }
 .zbtn:hover { background: var(--surface2); color: var(--accent); }
+.zbtn.gps-active { color: #2563eb; }
+.zbtn.gps-active svg { animation: gps-spin 1.5s linear infinite; }
+@keyframes gps-spin { to { transform: rotate(360deg); } }
+
+/* GPS dot on map */
+.gps-dot-wrap { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; }
+.gps-dot {
+  width: 14px; height: 14px; background: #2563eb;
+  border: 2.5px solid #fff; border-radius: 50%;
+  box-shadow: 0 0 0 0 rgba(37,99,235,0.4);
+  animation: gps-pulse 2s ease-out infinite;
+}
+.gps-dot.gps-stale { background: #94a3b8; box-shadow: none; animation: none; }
+@keyframes gps-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(37,99,235,0.45); }
+  70%  { box-shadow: 0 0 0 10px rgba(37,99,235,0); }
+  100% { box-shadow: 0 0 0 0 rgba(37,99,235,0); }
+}
+.gps-accuracy {
+  position: absolute; border-radius: 50%;
+  background: rgba(37,99,235,0.12); border: 1px solid rgba(37,99,235,0.25);
+  pointer-events: none;
+}
 
 /* ── TOAST ──────────────────────────────────────────── */
 .toast {

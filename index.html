@@ -152,16 +152,24 @@
     <div class="map-badge zoom-ctrls">
       <button class="zbtn" onclick="map.zoomIn()">+</button>
       <button class="zbtn" onclick="map.zoomOut()">−</button>
+      <button class="zbtn" id="gpsBtn" onclick="toggleGPS()" title="My location">
+        <svg id="gpsIcon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+          <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" stroke-width="1.5" opacity="0.4"/>
+        </svg>
+      </button>
     </div>
-    <div class="map-badge map-legend">
-      <div class="leg-title">Route Legend</div>
-      <div class="leg-item"><div class="leg-swatch" style="background:rgba(22,163,74,.55);border:1.5px solid #16a34a"></div>Start</div>
-      <div class="leg-item"><div class="leg-swatch" style="background:rgba(14,165,233,.45);border:1.5px solid #0ea5e9"></div>Selected</div>
-      <div class="leg-item"><div class="leg-swatch" style="background:rgba(245,158,11,.55);border:1.5px solid #d97706"></div>Search match</div>
-      <div class="leg-item"><div class="leg-swatch" style="background:rgba(220,38,38,.55);border:1.5px solid #dc2626"></div>Destination</div>
-      <div class="leg-item">
-        <div style="width:18px;height:4px;background:#0ea5e9;border-radius:2px;margin-top:4px"></div>
-        &nbsp;Route
+    <div class="map-badge map-legend" id="mapLegend">
+      <div class="leg-label" onclick="toggleLegend()">Legend <span id="legArrow">▾</span></div>
+      <div id="legBody">
+        <div class="leg-item"><div class="leg-swatch" style="background:rgba(22,163,74,.55);border:1.5px solid #16a34a"></div>Start</div>
+        <div class="leg-item"><div class="leg-swatch" style="background:rgba(14,165,233,.45);border:1.5px solid #0ea5e9"></div>Selected</div>
+        <div class="leg-item"><div class="leg-swatch" style="background:rgba(245,158,11,.55);border:1.5px solid #d97706"></div>Search match</div>
+        <div class="leg-item"><div class="leg-swatch" style="background:rgba(220,38,38,.55);border:1.5px solid #dc2626"></div>Destination</div>
+        <div class="leg-item">
+          <div style="width:18px;height:4px;background:#0ea5e9;border-radius:2px"></div>
+          &nbsp;Route
+        </div>
       </div>
     </div>
     <!-- Mobile FAB — visible when sheet is hidden -->
