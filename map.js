@@ -8,8 +8,8 @@
 const map = new maplibregl.Map({
   container: 'map',
   style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
-  center: [77.5667, 12.908],
-  zoom: window.innerWidth < 768 ? 15.5 : 16.5,
+  center: [77.5667, 12.9075],
+  zoom: window.innerWidth < 768 ? 16.2 : 16.5,
   bearing: 90,
   attributionControl: false,
 });
@@ -317,9 +317,6 @@ let _gpsMarker    = null;
 let _gpsAccuracy  = null;
 let _gpsCentre    = true;   // fly to position on first fix
 let _gpsStale     = false;
-let _gpsPosition  = null;   // [lng, lat] of latest fix
-
-function getGPSPosition() { return _gpsPosition; }
 
 function toggleGPS() {
   if (_gpsWatchId !== null) {
@@ -336,6 +333,8 @@ function startGPS() {
   }
   const btn = document.getElementById('gpsBtn');
   btn.classList.add('gps-active');
+  const fab = document.getElementById('gpsFabBtn');
+  if (fab) fab.style.color = 'var(--accent)';
   _gpsCentre = true;
 
   _gpsWatchId = navigator.geolocation.watchPosition(
@@ -350,19 +349,17 @@ function stopGPS() {
     navigator.geolocation.clearWatch(_gpsWatchId);
     _gpsWatchId = null;
   }
-  _gpsPosition = null;
   if (_gpsMarker)   { _gpsMarker.remove();   _gpsMarker   = null; }
   if (_gpsAccuracy) { _gpsAccuracy.remove(); _gpsAccuracy = null; }
   document.getElementById('gpsBtn').classList.remove('gps-active');
+  const fab2 = document.getElementById('gpsFabBtn');
+  if (fab2) fab2.style.color = '';
 }
 
 function onGPSUpdate(pos) {
   const { longitude: lng, latitude: lat, accuracy } = pos.coords;
   _gpsStale = false;
-  _gpsPosition = [lng, lat];
 
-  // Trigger live rerouting in ui.js if a GPS route is active
-  if (typeof onGPSPositionUpdate === 'function') onGPSPositionUpdate(_gpsPosition);
 
 
   // Blue dot
@@ -385,9 +382,38 @@ function onGPSUpdate(pos) {
     _gpsCentre = false;
   }
 
-  // Stop spinning icon once we have a fix
-  document.getElementById('gpsBtn').classList.remove('gps-active');
-  document.getElementById('gpsIcon').style.color = '#2563eb';
+  // Stop spinning, keep pin blue
+  const btn = document.getElementById('gpsBtn');
+  btn.classList.remove('gps-active');
+  btn.style.color = '#2563eb';
+  const fab3 = document.getElementById('gpsFabBtn');
+  if (fab3) { fab3.style.color = '#2563eb'; }
+
+  // Update live distance in nav pane if routing from GPS
+  updateGPSRouteDistance(lng, lat);
+}
+
+function updateGPSRouteDistance(lng, lat) {
+  const fromSel = document.getElementById('fromSel');
+  const toSel   = document.getElementById('toSel');
+  if (!fromSel || fromSel.value !== 'GPS') return;
+  const to = toSel?.value;
+  if (!to || !Router.isReady()) return;
+
+  const toCenter = getBuildingCenter(to);
+  if (!toCenter) return;
+  const route = Router.find([lng, lat], toCenter);
+  if (!route) return;
+
+  const metres = Math.round(route.distanceM);
+  const mins   = Math.max(1, Math.round(metres / 80));
+  const dEl = document.getElementById('rDist');
+  const tEl = document.getElementById('rTime');
+  if (dEl) dEl.textContent = metres;
+  if (tEl) tEl.textContent = '~' + mins;
+
+  // Redraw route line
+  drawRoute(route.coords);
 }
 
 function onGPSError(err) {
@@ -399,4 +425,3 @@ function onGPSError(err) {
   };
   showToast('📍 ' + (msgs[err.code] || 'GPS error'));
 }
-

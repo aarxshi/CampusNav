@@ -153,9 +153,9 @@
       <button class="zbtn" onclick="map.zoomIn()">+</button>
       <button class="zbtn" onclick="map.zoomOut()">−</button>
       <button class="zbtn" id="gpsBtn" onclick="toggleGPS()" title="My location">
-        <svg id="gpsIcon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-          <circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
-          <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" stroke-width="1.5" opacity="0.4"/>
+        <svg id="gpsIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+          <circle cx="12" cy="9" r="2.5"/>
         </svg>
       </button>
     </div>
@@ -182,6 +182,14 @@
       <button class="fab-btn" onclick="switchTab('navigate')">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
         Directions
+      </button>
+      <div style="width:1px;height:20px;background:var(--border)"></div>
+      <button class="fab-btn" id="gpsFabBtn" onclick="toggleGPS()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+          <circle cx="12" cy="9" r="2.5"/>
+        </svg>
+        My Location
       </button>
     </div>
   </div>
