@@ -581,15 +581,15 @@ window.addEventListener('resize', () => {
           // fast flick down → go one level down
           if (sheetState === 'full')   snapTo = 'half';
           else if (sheetState === 'half') snapTo = 'peek';
-          else snapTo = 'peek';
+          else snapTo = 'hidden';
         } else if (velocity < -0.5) {
           if (sheetState === 'peek')   snapTo = 'half';
           else snapTo = ratio > 0.5 ? 'full' : 'half';
         } else {
           if (ratio > 0.65)      snapTo = 'full';
           else if (ratio > 0.45) snapTo = 'half';
-          else if (ratio > 0.18) snapTo = 'peek';
-          else                   snapTo = 'peek';  // never fully hide from drag
+          else if (ratio > 0.12) snapTo = 'peek';
+          else                   snapTo = 'hidden';
         }
 
         // No height reset needed — we never changed height
