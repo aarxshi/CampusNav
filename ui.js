@@ -94,6 +94,7 @@ function clearSearchHighlights() {
    BUILDING SELECTION
 ════════════════════════════════════════════════════════ */
 let selectedBid = null;
+let _justSelected = false;
 
 function selectBuilding(bid) {
   bid = String(bid);
@@ -103,7 +104,7 @@ function selectBuilding(bid) {
 
   document.querySelectorAll('.brow').forEach(r => r.classList.remove('active'));
   const row = document.querySelector(`.brow[data-id="${bid}"]`);
-  if (row) { row.classList.add('active'); row.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+  if (row) row.classList.add('active');
 
   const isNum = !isNaN(bid);
   document.getElementById('cNum').textContent  = isNum ? 'Building ' + bid : b.name;
@@ -119,15 +120,18 @@ function selectBuilding(bid) {
     imgEl.classList.remove('loaded'); imgEl.src = ''; imgPh.style.display = 'flex';
   }
 
-  document.getElementById('infoCard').classList.add('visible');
-  switchTab('buildings');
-
   if (window.innerWidth < 768) {
-    setSheet('full');
-    setTimeout(() => {
-      const card = document.getElementById('infoCard');
-      if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 320);
+    // Hide list, show card — map visible on top half, card on bottom
+    document.getElementById('buildingList').style.display = 'none';
+    document.getElementById('infoCard').classList.add('visible');
+    switchTab('buildings');
+    setSheet('half');
+    // Clear the guard after this event cycle so empty-map taps can dismiss
+    setTimeout(() => { _justSelected = false; }, 300);
+    _justSelected = true;
+  } else {
+    document.getElementById('infoCard').classList.add('visible');
+    switchTab('buildings');
   }
 
   setMapSelected(bid);
@@ -135,9 +139,11 @@ function selectBuilding(bid) {
 
 function closeCard() {
   document.getElementById('infoCard').classList.remove('visible');
+  document.getElementById('buildingList').style.display = '';
   document.querySelectorAll('.brow').forEach(r => r.classList.remove('active'));
   clearMapSelected();
   selectedBid = null;
+  if (window.innerWidth < 768) closePeekCard();
 }
 
 /* ════════════════════════════════════════════════════════
@@ -257,6 +263,12 @@ function findRoute() {
   }).join('');
 
   document.getElementById('routeCard').classList.add('visible');
+
+  // On mobile: snap to half so the route is visible on the map
+  if (window.innerWidth < 768) {
+    closePeekCard();
+    setSheet('half');
+  }
 }
 
 /* ════════════════════════════════════════════════════════
@@ -324,33 +336,98 @@ function showToast(msg) {
 }
 
 /* ════════════════════════════════════════════════════════
-   MOBILE SHEET  —  half | full | hidden
+   PEEK CARD  —  GMaps-style building preview on mobile
+════════════════════════════════════════════════════════ */
+let _peekBid = null;
+
+function showPeekCard(bid) {
+  const b = BUILDINGS[String(bid)];
+  if (!b) return;
+  _peekBid = String(bid);
+
+  // Hide sheet and FAB — full map visible behind card
+  setSheet('hidden');
+  const fab = document.getElementById('mobileFab');
+  if (fab) fab.style.display = 'none';
+
+  let el = document.getElementById('peekCard');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'peekCard';
+    el.className = 'peek-card';
+    document.querySelector('.layout').appendChild(el);
+  }
+
+  const imgHTML = b.img
+    ? `<img class="peek-img" src="${b.img}" alt="${b.name}" onload="this.classList.add('loaded')" />`
+    : '';
+
+  const deptsHTML = b.depts.map(d => `<div class="dept-item">${d}</div>`).join('');
+
+  el.classList.remove('visible');
+  el.innerHTML = `
+    <div class="peek-drag-bar"></div>
+    ${imgHTML}
+    <div class="peek-body">
+      <div class="peek-name">${b.name}</div>
+      <div class="peek-type">${b.type}</div>
+      <div class="dept-list" style="margin-bottom:14px">${deptsHTML}</div>
+      <div class="peek-btns">
+        <button class="btn-sm btn-from" onclick="setFrom()">↑ From here</button>
+        <button class="btn-sm btn-to"   onclick="setTo()">↓ To here</button>
+      </div>
+    </div>
+  `;
+  requestAnimationFrame(() => el.classList.add('visible'));
+}
+
+function closePeekCard() {
+  const el = document.getElementById('peekCard');
+  if (el) el.classList.remove('visible');
+  _peekBid = null;
+  // Show FAB so user can reopen the sheet
+  const fab = document.getElementById('mobileFab');
+  if (fab && window.innerWidth < 768) fab.style.display = 'flex';
+}
+
+
+/* ════════════════════════════════════════════════════════
+   MOBILE SHEET  —  half | full | hidden  (with momentum)
 ════════════════════════════════════════════════════════ */
 let sheetState = 'half';
 
-const SHEET_HEIGHT_VH = 0.70;
-const HALF_OFFSET_VH  = 0.35;
+// Snap thresholds
+const SHEET_HEIGHT_RATIO = 1.05;   // sheet CSS height (105vh — extra bottom hides spring gap)
+const HALF_OFFSET_RATIO  = 0.42;   // half = translateY(42% of screen) → shows ~40% map above
 
-function setSheet(state) {
+function setSheet(state, animate = true) {
   if (window.innerWidth >= 768) return;
   const sidebar = document.getElementById('sidebar');
   const fab     = document.getElementById('mobileFab');
   if (!sidebar) return;
 
   sheetState = state;
-  sidebar.style.transition = 'transform .28s cubic-bezier(.4,0,.2,1)';
+
+  if (animate) {
+    sidebar.classList.add('sheet-snapping');
+    setTimeout(() => sidebar.classList.remove('sheet-snapping'), 350);
+  } else {
+    sidebar.classList.remove('sheet-snapping');
+  }
+
   sidebar.classList.remove('sheet-hidden');
+  sidebar.style.transition = '';  // let CSS class handle it
 
   if (state === 'full') {
     sidebar.style.transform = 'translateY(0)';
     if (fab) fab.style.display = 'none';
   } else if (state === 'half') {
-    const offset = window.innerHeight * HALF_OFFSET_VH;
+    const offset = window.innerHeight * HALF_OFFSET_RATIO;
     sidebar.style.transform = `translateY(${offset}px)`;
     if (fab) fab.style.display = 'none';
   } else {
     sidebar.style.transform = `translateY(110%)`;
-    setTimeout(() => sidebar.classList.add('sheet-hidden'), 300);
+    setTimeout(() => sidebar.classList.add('sheet-hidden'), 340);
     if (fab) fab.style.display = 'flex';
   }
 }
@@ -362,14 +439,41 @@ document.addEventListener('DOMContentLoaded', () => {
   renderList();
 
   if (window.innerWidth < 768) {
-    requestAnimationFrame(() => requestAnimationFrame(() => setSheet('half')));
+    // Set sheet to hidden immediately with NO transition (no jank on load)
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar) {
+      sidebar.style.transition = 'none';
+      sidebar.style.transform = 'translateY(110%)';
+      sidebar.classList.add('sheet-hidden');
+    }
+    sheetState = 'hidden';
+
+    // Show FAB immediately
+    const fab = document.getElementById('mobileFab');
+    if (fab) fab.style.display = 'flex';
+
+    // After a single frame, slide sheet up to half WITH animation
+    // Use rAF x2 to ensure the no-transition state is painted first
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (sidebar) sidebar.style.transition = '';
+      setSheet('half');
+    }));
 
     const mobileSearch = document.getElementById('searchInputMobile');
     if (mobileSearch) mobileSearch.addEventListener('input', e => filterList(e.target.value));
 
     document.getElementById('map').addEventListener('click', e => {
       if (e.target.closest('.map-badge') || e.target.closest('#mobileFab')) return;
-      if (sheetState === 'full') setSheet('half');
+
+      // If a building was just selected this event cycle, don't dismiss
+      if (_justSelected) return;
+
+      // No building selected — tap on empty map always shows list at half
+      if (document.getElementById('infoCard').classList.contains('visible')) {
+        closeCard();
+      } else {
+        setSheet('half');
+      }
     });
   }
 });
@@ -387,83 +491,146 @@ window.addEventListener('resize', () => {
 });
 
 /* ════════════════════════════════════════════════════════
-   RESIZE
+   RESIZE / DRAG
    Desktop: drag right edge → change width
-   Mobile:  drag top bar   → change height + snap
+   Mobile:  drag top bar   → velocity-aware snap to half|full|hidden
 ════════════════════════════════════════════════════════ */
 (function () {
   const MIN_W = 220, MAX_W = 560;
-  const MIN_H_PX = 120;
 
   document.addEventListener('DOMContentLoaded', () => {
     const sidebar = document.getElementById('sidebar');
     const handle  = document.getElementById('resizeHandle');
     if (!sidebar || !handle) return;
 
-    let dragging = false, startPos = 0, startSize = 0;
+    let dragging = false, startY = 0, startX = 0, startTranslateY = 0, startW = 0;
+    let velSamples = [], lastY = 0, lastT = 0, velocity = 0;
     function mob() { return window.innerWidth < 768; }
 
-    function onStart(pos) {
-      dragging  = true;
-      startPos  = pos;
-      startSize = mob()
-        ? sidebar.getBoundingClientRect().height
-        : sidebar.getBoundingClientRect().width;
-      sidebar.style.transition = 'none';
-      document.body.style.userSelect = 'none';
-      document.body.style.cursor = mob() ? 'ns-resize' : 'ew-resize';
+    function getTranslateY(el) {
+      const t = new DOMMatrix(getComputedStyle(el).transform);
+      return t.m42; // translateY in px
     }
 
-    function onMove(pos) {
-      if (!dragging) return;
+    function onStart(clientX, clientY) {
+      dragging  = true;
+      startY    = clientY;
+      startX    = clientX;
+      lastY     = clientY;
+      lastT     = Date.now();
+      velocity  = 0;
+      velSamples = [];
       if (mob()) {
-        const delta = startPos - pos;
-        const maxH  = window.innerHeight * 0.90;
-        const newH  = Math.min(maxH, Math.max(MIN_H_PX, startSize + delta));
-        sidebar.style.height    = newH + 'px';
-        sidebar.style.transform = 'translateY(0)';
-        sheetState = 'full';
+        startTranslateY = getTranslateY(sidebar);
+      } else {
+        startW = sidebar.getBoundingClientRect().width;
+      }
+      // Kill transition during drag for instant response
+      sidebar.style.transition = 'none';
+      sidebar.classList.remove('sheet-snapping');
+      document.body.style.userSelect = 'none';
+    }
+
+    function onMove(clientX, clientY) {
+      if (!dragging) return;
+
+      // Rolling velocity over last 80ms for smoothness
+      const now = Date.now();
+      velSamples.push({ y: clientY, t: now });
+      velSamples = velSamples.filter(s => now - s.t < 80);
+      if (velSamples.length >= 2) {
+        const first = velSamples[0], last = velSamples[velSamples.length - 1];
+        velocity = (last.y - first.y) / (last.t - first.t); // px/ms, + = downward
+      }
+      lastY = clientY;
+      lastT = now;
+
+      if (mob()) {
+        // Drive purely via translateY — no height changes during drag
+        const sheetTop   = window.innerHeight * (1 - SHEET_HEIGHT_RATIO); // ~15vh top
+        const delta      = clientY - startY;
+        const newTranslate = Math.max(sheetTop, Math.min(window.innerHeight, startTranslateY + delta));
+        sidebar.style.transform = `translateY(${newTranslate}px)`;
+        sidebar.classList.remove('sheet-hidden');
         const fab = document.getElementById('mobileFab');
         if (fab) fab.style.display = 'none';
-        sidebar.classList.remove('sheet-hidden');
       } else {
-        const newW = Math.min(MAX_W, Math.max(MIN_W, startSize + (pos - startPos)));
+        const newW = Math.min(MAX_W, Math.max(MIN_W, startW + (clientX - startX)));
         sidebar.style.width = newW + 'px';
       }
     }
 
-    function onEnd() {
+    function onEnd(clientY) {
       if (!dragging) return;
       dragging = false;
       document.body.style.userSelect = '';
-      document.body.style.cursor     = '';
-      sidebar.style.transition = '';
+
+      if (mob()) {
+        const currentTranslate = getTranslateY(sidebar);
+        const ratio = 1 - (currentTranslate / window.innerHeight);
+
+        let snapTo;
+        if (velocity > 0.8) {
+          snapTo = ratio > 0.6 ? 'half' : 'hidden';
+        } else if (velocity < -0.8) {
+          snapTo = 'full';
+        } else {
+          if (ratio > 0.65)      snapTo = 'full';
+          else if (ratio > 0.28) snapTo = 'half';
+          else                   snapTo = 'hidden';
+        }
+
+        // No height reset needed — we never changed height
+        setSheet(snapTo, true);
+      }
     }
 
+    // Touch events (passive:false on start so we can prevent scroll-fighting on handle)
     handle.addEventListener('touchstart', e => {
-      onStart(mob() ? e.touches[0].clientY : e.touches[0].clientX);
+      if (!mob()) return;
+      e.stopPropagation();
+      onStart(e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: true });
+
     document.addEventListener('touchmove', e => {
-      if (dragging) onMove(mob() ? e.touches[0].clientY : e.touches[0].clientX);
+      if (!dragging || !mob()) return;
+      onMove(e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: true });
-    document.addEventListener('touchend', onEnd);
 
-    handle.addEventListener('mousedown', e => { onStart(mob() ? e.clientY : e.clientX); e.preventDefault(); });
-    document.addEventListener('mousemove', e => { if (dragging) onMove(mob() ? e.clientY : e.clientX); });
-    document.addEventListener('mouseup', onEnd);
+    document.addEventListener('touchend', e => {
+      if (!mob()) return;
+      onEnd(e.changedTouches[0]?.clientY ?? lastY);
+    });
 
-    let tapY = 0, tapping = false;
-    handle.addEventListener('touchstart', e => { tapY = e.touches[0].clientY; tapping = true; }, { passive: true });
+    // Desktop mouse events
+    handle.addEventListener('mousedown', e => {
+      if (mob()) return;
+      onStart(e.clientX, e.clientY);
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', e => {
+      if (!mob()) onMove(e.clientX, e.clientY);
+    });
+    document.addEventListener('mouseup', e => {
+      if (!mob()) onEnd(e.clientY);
+      dragging = false;
+      document.body.style.userSelect = '';
+    });
+
+    // Tap on drag handle = toggle half ↔ full
+    let _tapStartY = 0;
+    handle.addEventListener('touchstart', e => {
+      _tapStartY = e.touches[0].clientY;
+    }, { passive: true });
     handle.addEventListener('touchend', e => {
-      if (!mob() || !tapping) return;
-      tapping = false;
-      if (Math.abs(e.changedTouches[0].clientY - tapY) < 10) {
+      if (!mob()) return;
+      const dy = Math.abs(e.changedTouches[0].clientY - _tapStartY);
+      if (dy < 8) {
         setSheet(sheetState === 'full' ? 'half' : 'full');
       }
     });
     handle.addEventListener('click', () => {
-      if (!mob()) return;
-      setSheet(sheetState === 'full' ? 'half' : 'full');
+      if (mob()) setSheet(sheetState === 'full' ? 'half' : 'full');
     });
   });
 })();

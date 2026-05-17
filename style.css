@@ -353,6 +353,11 @@ header {
 ═══════════════════════════════════════════════════════ */
 @media (max-width: 767px) {
 
+  /* Prevent tap delay on interactive elements, but allow scroll on content */
+  * { touch-action: pan-y; }
+  button, a, .tab, .fab-btn, .zbtn { touch-action: manipulation; }
+  .brow { touch-action: pan-y; }  /* allow scroll starting on a row */
+
   header { padding: 0 14px; gap: 10px; }
   /* Hide desktop search/directions but KEEP wordmark and toggle */
   header .hdiv,
@@ -367,13 +372,17 @@ header {
   }
 
   .layout { position: relative; }
-  #map { position: absolute; inset: 0; }
+  #map {
+    position: absolute; inset: 0;
+    /* Let map handle its own panning */
+    touch-action: pan-x pan-y pinch-zoom;
+  }
   .zoom-ctrls { top: auto; bottom: 100px; right: 12px; }
   .map-legend { top: 16px; right: 12px; bottom: auto; padding: 9px 11px; display: none; }
   .leg-title  { font-size: 9px; margin-bottom: 6px; }
   .leg-item   { font-size: 10.5px; }
 
-  /* Sheet */
+  /* Sheet — promoted to its own compositor layer for smooth animation */
   .sidebar {
     width: 100% !important;
     min-width: unset !important;
@@ -382,14 +391,23 @@ header {
     opacity: 1 !important;
     position: absolute;
     bottom: 0; left: 0; right: 0;
-    height: 70vh;
+    height: 105vh;          /* extra 20vh below fold so spring overshoot never shows map */
     border-radius: 18px 18px 0 0;
     box-shadow: 0 -4px 24px rgba(0,0,0,0.13);
     border-top: 1px solid var(--border);
     z-index: 50;
     overflow: hidden;
     display: flex; flex-direction: column;
-    transition: transform .28s cubic-bezier(.4,0,.2,1);
+    /* GPU-promote + smooth spring-like easing */
+    will-change: transform;
+    transition: transform .32s cubic-bezier(.32,0,.67,0);
+    /* Sheet itself should only scroll vertically, not pan the map */
+    touch-action: pan-y;
+  }
+
+  /* Snappy feel going to resting states */
+  .sidebar.sheet-snapping {
+    transition: transform .38s cubic-bezier(.34,1.56,.64,1);  /* spring overshoot */
   }
 
   .sidebar.sheet-hidden {
@@ -397,41 +415,61 @@ header {
     pointer-events: none !important;
     box-shadow: none !important;
   }
-  .sidebar.sheet-open    { transform: translateY(0); }
+  .sidebar.sheet-open { transform: translateY(0); }
 
-  /* Resize handle becomes top drag bar on mobile */
+  /* Resize handle becomes top drag bar — BIGGER tap target */
   .resize-handle {
     position: relative !important;
     top: auto !important; right: auto !important;
     width: 100% !important;
-    height: 28px !important;
+    height: 44px !important;      /* was 28px — now thumb-friendly */
     cursor: ns-resize !important;
     flex-shrink: 0;
     align-items: center; justify-content: center;
     background: var(--surface);
     border-radius: 18px 18px 0 0;
     display: flex !important;
+    /* Handle drags sheet, not page */
+    touch-action: none;
   }
   .resize-handle::after { display: none !important; }
 
   .mobile-drag-bar {
     display: block;
-    width: 36px; height: 4px;
+    width: 40px; height: 4px;
     background: var(--border2);
     border-radius: 2px;
   }
 
-  /* Content */
-  .pane.active { overflow-y: auto; flex: 1; min-height: 0; }
-  .pane        { flex: 1; min-height: 0; }
-  .nav-inner   { overflow-y: auto; flex: 1; }
-  .building-list { flex: 1; overflow-y: auto; }
-  .info-card   { max-height: none; border-top: 1px solid var(--border); flex-shrink: 0; }
+  /* Content areas — each must have min-height:0 so flex children can scroll */
+  .pane.active { overflow-y: auto; flex: 1; min-height: 0; touch-action: pan-y; }
+  .pane        { flex: 1; min-height: 0; overflow: hidden; }
+  .nav-inner   { overflow-y: auto; flex: 1; min-height: 0; touch-action: pan-y; }
+  .building-list { flex: 1; min-height: 0; overflow-y: auto; touch-action: pan-y; }
 
-  /* Cap image height on mobile — keeps ratio but won't eat the whole screen */
+  /* Info card on mobile: scrollable within the half-sheet */
+  .info-card {
+    max-height: none;
+    border-top: none;
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+
+  /* Cap image so departments are visible without scrolling */
   .card-img-wrap {
     aspect-ratio: unset;
-    height: min(56vw, 240px);
+    height: 140px;
+  }
+
+  /* Extra bottom breathing room so content clears home indicator */
+  .card-body { padding-bottom: max(24px, env(safe-area-inset-bottom, 24px)); }
+
+  /* Cap image height on mobile */
+  .card-img-wrap {
+    aspect-ratio: unset;
+    height: min(56vw, 220px);
   }
 
   .sidebar, .building-list, .pane, .nav-inner {
@@ -441,6 +479,55 @@ header {
   .building-list::-webkit-scrollbar,
   .pane::-webkit-scrollbar,
   .nav-inner::-webkit-scrollbar { display: none; }
+
+  /* Peek card — shown when a building is tapped */
+  .peek-card {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    background: var(--surface);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.13);
+    border-top: 1px solid var(--border);
+    z-index: 65;
+    padding: 0 0 env(safe-area-inset-bottom, 16px);
+    display: none;
+    overflow-y: auto;
+    max-height: 80vh;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+  .peek-card.visible { display: block; animation: slideUpPeek .28s cubic-bezier(.22,1,.36,1); }
+
+  @keyframes slideUpPeek {
+    from { transform: translateY(100%); opacity: 0; }
+    to   { transform: translateY(0);   opacity: 1; }
+  }
+
+  .peek-drag-bar {
+    width: 40px; height: 4px;
+    background: var(--border2);
+    border-radius: 2px;
+    margin: 12px auto 0;
+  }
+  .peek-img {
+    width: 100%; height: 190px;
+    object-fit: cover;
+    margin-top: 12px;
+    display: none;
+  }
+  .peek-img.loaded { display: block; }
+  .peek-body { padding: 14px 18px 8px; }
+  .peek-name { font-family: 'Instrument Serif', serif; font-size: 20px; line-height: 1.2; margin-bottom: 3px; }
+  .peek-type { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; }
+  .peek-btns { display: flex; gap: 8px; margin-bottom: 12px; }
+  .peek-btns .btn-sm { padding: 11px 0; font-size: 13.5px; }
+  .peek-expand {
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+    font-size: 12.5px; color: var(--accent);
+    cursor: pointer; padding: 10px 0 6px;
+    border-top: 1px solid var(--border);
+    font-weight: 500;
+  }
 
   /* FAB — hidden by default, shown by JS when sheet is fully hidden */
   #mobileFab {

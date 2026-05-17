@@ -8,7 +8,7 @@
 const map = new maplibregl.Map({
   container: 'map',
   style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
-  center: [77.5667, 12.9075],
+  center: window.innerWidth < 768 ? [77.566574, 12.908188] : [77.5667, 12.9075],
   zoom: window.innerWidth < 768 ? 16.2 : 16.5,
   bearing: 90,
   attributionControl: false,
@@ -17,7 +17,6 @@ const map = new maplibregl.Map({
 map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
 map.on('load', () => {
-
   /* Raster overlay ─────────────────────────────────── */
   map.addSource('overlay', {
     type: 'image',
@@ -179,7 +178,7 @@ map.on('load', () => {
 
   map.on('click', 'building-fill', e => {
     const bid = String(e.features[0].properties?.id ?? e.features[0].id);
-    if (BUILDINGS[bid]) selectBuilding(bid);
+    if (BUILDINGS[bid]) selectBuilding(bid, 'map');
   });
 
   map.on('mouseenter', 'building-fill', () => map.getCanvas().style.cursor = 'pointer');
