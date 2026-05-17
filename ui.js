@@ -26,6 +26,11 @@ function switchTab(name) {
   document.getElementById('pane-' + name).classList.add('active');
   if (window.innerWidth >= 768 && !sidebarOpen) toggleSidebar();
   if (window.innerWidth < 768 && sheetState === 'hidden') setSheet('half');
+  // Reapply maxHeight so the newly active pane scrolls correctly
+  if (window.innerWidth < 768 && sheetState !== 'hidden') {
+    const offset = sheetState === 'full' ? 56 : sheetState === 'peek' ? window.innerHeight * PEEK_OFFSET_RATIO : window.innerHeight * HALF_OFFSET_RATIO;
+    document.getElementById('pane-' + name).style.maxHeight = (window.innerHeight - offset - 92) + 'px';
+  }
 }
 
 /* ════════════════════════════════════════════════════════
@@ -347,9 +352,6 @@ function showPeekCard(bid) {
 
   // Hide sheet and FAB — full map visible behind card
   setSheet('hidden');
-  const fab = document.getElementById('mobileFab');
-  if (fab) fab.style.display = 'none';
-
   let el = document.getElementById('peekCard');
   if (!el) {
     el = document.createElement('div');
@@ -385,9 +387,7 @@ function closePeekCard() {
   const el = document.getElementById('peekCard');
   if (el) el.classList.remove('visible');
   _peekBid = null;
-  // Show FAB so user can reopen the sheet
-  const fab = document.getElementById('mobileFab');
-  if (fab && window.innerWidth < 768) fab.style.display = 'flex';
+
 }
 
 
@@ -398,7 +398,8 @@ let sheetState = 'half';
 
 // Snap thresholds
 const SHEET_HEIGHT_RATIO = 1.05;   // sheet CSS height (105vh — extra bottom hides spring gap)
-const HALF_OFFSET_RATIO  = 0.42;   // half = translateY(42% of screen) → shows ~40% map above
+const HALF_OFFSET_RATIO  = 0.35;   // half = translateY(35%) → shows ~35% map
+const PEEK_OFFSET_RATIO  = 0.72;   // peek = translateY(72%) → just a sliver at the bottom
 
 function setSheet(state, animate = true) {
   if (window.innerWidth >= 768) return;
@@ -416,18 +417,28 @@ function setSheet(state, animate = true) {
   }
 
   sidebar.classList.remove('sheet-hidden');
-  sidebar.style.transition = '';  // let CSS class handle it
+  sidebar.style.transition = '';
+
+  const pane = document.querySelector('.pane.active');
 
   if (state === 'full') {
-    sidebar.style.transform = 'translateY(0)';
+    sidebar.style.transform = 'translateY(56px)';
+    if (pane) pane.style.maxHeight = (window.innerHeight - 56 - 92) + 'px';
     if (fab) fab.style.display = 'none';
   } else if (state === 'half') {
     const offset = window.innerHeight * HALF_OFFSET_RATIO;
     sidebar.style.transform = `translateY(${offset}px)`;
+    if (pane) pane.style.maxHeight = (window.innerHeight - offset - 92) + 'px';
+    if (fab) fab.style.display = 'none';
+  } else if (state === 'peek') {
+    const offset = window.innerHeight * PEEK_OFFSET_RATIO;
+    sidebar.style.transform = `translateY(${offset}px)`;
+    if (pane) pane.style.maxHeight = (window.innerHeight - offset - 92) + 'px';
     if (fab) fab.style.display = 'none';
   } else {
     sidebar.style.transform = `translateY(110%)`;
     setTimeout(() => sidebar.classList.add('sheet-hidden'), 340);
+    if (pane) pane.style.maxHeight = '';
     if (fab) fab.style.display = 'flex';
   }
 }
@@ -447,10 +458,6 @@ document.addEventListener('DOMContentLoaded', () => {
       sidebar.classList.add('sheet-hidden');
     }
     sheetState = 'hidden';
-
-    // Show FAB immediately
-    const fab = document.getElementById('mobileFab');
-    if (fab) fab.style.display = 'flex';
 
     // After a single frame, slide sheet up to half WITH animation
     // Use rAF x2 to ensure the no-transition state is painted first
@@ -570,14 +577,19 @@ window.addEventListener('resize', () => {
         const ratio = 1 - (currentTranslate / window.innerHeight);
 
         let snapTo;
-        if (velocity > 0.8) {
-          snapTo = ratio > 0.6 ? 'half' : 'hidden';
-        } else if (velocity < -0.8) {
-          snapTo = 'full';
+        if (velocity > 0.5) {
+          // fast flick down → go one level down
+          if (sheetState === 'full')   snapTo = 'half';
+          else if (sheetState === 'half') snapTo = 'peek';
+          else snapTo = 'peek';
+        } else if (velocity < -0.5) {
+          if (sheetState === 'peek')   snapTo = 'half';
+          else snapTo = ratio > 0.5 ? 'full' : 'half';
         } else {
           if (ratio > 0.65)      snapTo = 'full';
-          else if (ratio > 0.28) snapTo = 'half';
-          else                   snapTo = 'hidden';
+          else if (ratio > 0.45) snapTo = 'half';
+          else if (ratio > 0.18) snapTo = 'peek';
+          else                   snapTo = 'peek';  // never fully hide from drag
         }
 
         // No height reset needed — we never changed height

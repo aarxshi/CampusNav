@@ -529,19 +529,24 @@ header {
     font-weight: 500;
   }
 
-  /* FAB — hidden by default, shown by JS when sheet is fully hidden */
+  /* FAB — hidden by default, CSS shows it whenever sheet-hidden class is active */
   #mobileFab {
     display: none;
-    position: absolute;
-    bottom: 24px; left: 50%;
+    position: fixed;
+    bottom: 28px; left: 50%;
     transform: translateX(-50%);
-    z-index: 60;
+    z-index: 70;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 100px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.18);
     padding: 10px 20px; gap: 16px;
     align-items: center;
+    white-space: nowrap;
+  }
+  /* Pure CSS: whenever the sheet is dismissed, FAB appears — no JS required */
+  .layout:has(.sidebar.sheet-hidden) #mobileFab {
+    display: flex !important;
   }
   .fab-btn {
     display: flex; align-items: center; gap: 6px;
